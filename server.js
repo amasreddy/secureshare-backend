@@ -6,7 +6,18 @@
 // Usage: node server.js
 
 const express = require('express');
-// ... keep existing code
+const multer = require('multer');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const fs = require('fs').promises;
+const path = require('path');
+const crypto = require('crypto');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Create uploads directory if it doesn't exist
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 fs.mkdir(UPLOADS_DIR, { recursive: true }).catch(console.error);
 
@@ -20,25 +31,35 @@ app.use(cors({
 
 // Rate limiting
 const uploadLimiter = rateLimit({
-// ... keep existing code
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 10 uploads per windowMs
   message: 'Too many uploads, please try again later'
 });
 
 const downloadLimiter = rateLimit({
-// ... keep existing code
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // limit each IP to 50 downloads per windowMs
   message: 'Too many downloads, please try again later'
 });
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
-// ... keep existing code
-    const uniqueId = crypto.randomUUID();
+  destination: function (req, file, cb) {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename using a more compatible method
+    const uniqueId = crypto.randomBytes(16).toString('hex');
     cb(null, uniqueId);
   }
 });
 
 const upload = multer({
-// ... keep existing code
+  storage: storage,
+  limits: {
+    fileSize: 2 * 1024 * 1024 * 1024, // 2GB limit
+  },
+  fileFilter: (req, file, cb) => {
     // Accept all file types since files are encrypted
     cb(null, true);
   }
@@ -69,7 +90,11 @@ app.post('/api/upload', uploadLimiter, upload.single('file'), async (req, res) =
 
     // Schedule file deletion after 7 days
     setTimeout(async () => {
-// ... keep existing code
+      try {
+        await fs.unlink(req.file.path);
+        fileMetadata.delete(fileId);
+        console.log(`Auto-deleted file: ${fileId}`);
+      } catch (error) {
         console.error(`Failed to auto-delete file ${fileId}:`, error);
       }
     }, 7 * 24 * 60 * 60 * 1000); // 7 days
@@ -115,7 +140,7 @@ app.get('/api/download/:fileId', downloadLimiter, async (req, res) => {
     fileStream.pipe(res);
 
     fileStream.on('error', (error) => {
-// ... keep existing code
+      console.error('File stream error:', error);
       if (!res.headersSent) {
         res.status(500).json({ error: 'Download failed' });
       }
@@ -152,29 +177,35 @@ app.get('/api/info/:fileId', async (req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-// ... keep existing code
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Error handling middleware
 app.use((error, req, res, next) => {
-// ... keep existing code
+  console.error('Server error:', error);
+  
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File too large (max 2GB)' });
+    }
+  }
   
   res.status(500).json({ error: 'Internal server error' });
 });
 
 // Start server
 app.listen(PORT, () => {
-// ... keep existing code
+  console.log(`SecureShare server running on port ${PORT}`);
   console.log(`Upload directory: ${UPLOADS_DIR}`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-// ... keep existing code
+  console.log('SIGTERM received, shutting down gracefully');
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-// ... keep existing code
+  console.log('SIGINT received, shutting down gracefully');
   process.exit(0);
 });
